@@ -25,9 +25,12 @@ function verifyJWT(req, res, next) {
   const token = authHeader.split(" ")[1];
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
     if (err) {
+      // console.log({ err });
       return res.status(403).send({ message: "Forbidden Access" });
     }
+    // console.log({ decoded });
     req.decoded = decoded;
+    // console.log(req.decoded);
     next();
   });
 }
@@ -52,9 +55,39 @@ async function run() {
       res.send(services);
     });
     //GET API for all users:---
-    app.get("/user", async (req, res) => {
+    app.get("/user", verifyJWT, async (req, res) => {
       const users = await usersCollection.find().toArray();
       res.send(users);
+    });
+
+    // GET api for checking Admin or NOT:---
+    app.get("/admin/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      // console.log({ email });
+      const user = await usersCollection.findOne({ email: email });
+      console.log(user);
+      const isAdmin = user.role === "admin";
+
+      res.send({ admin: isAdmin });
+    });
+
+    // API to make user Admin:--------
+    app.put("/user/admin/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      const requester = req.decoded.email;
+      const requesterAccount = await usersCollection.findOne({
+        email: requester,
+      });
+      if (requesterAccount.role === "admin") {
+        const filter = { email: email };
+        const updateDoc = {
+          $set: { role: "admin" },
+        };
+        const result = await usersCollection.updateOne(filter, updateDoc);
+        res.send({ result });
+      } else {
+        return res.status(403).send({ message: "Forbidden Access" });
+      }
     });
 
     // PUT Api for unique user and JWT toknassign for each users:--
@@ -74,7 +107,7 @@ async function run() {
       const token = jwt.sign(
         { email: email },
         process.env.ACCESS_TOKEN_SECRET,
-        { expiresIn: "1h" }
+        { expiresIn: "24h" }
       );
       res.send({ result, token });
     });
