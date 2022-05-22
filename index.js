@@ -28,7 +28,7 @@ function verifyJWT(req, res, next) {
       // console.log({ err });
       return res.status(403).send({ message: "Forbidden Access" });
     }
-    // console.log({ decoded });
+    // console.log("verify user", { decoded });
     req.decoded = decoded;
     // console.log(req.decoded);
     next();
@@ -39,6 +39,7 @@ async function run() {
   try {
     await client.connect();
     // console.log("db connected");
+    // //All Collection:-----
     const serviceCollection = client
       .db("doctors_portal")
       .collection("services");
@@ -46,11 +47,25 @@ async function run() {
       .db("doctors_portal")
       .collection("bookings");
     const usersCollection = client.db("doctors_portal").collection("users");
+    const doctorCollection = client.db("doctors_portal").collection("doctors");
+
+    // Middle Layer For Verify admin:===
+    const verifyAdmin = async (req, res, next) => {
+      const requester = req.decoded.email;
+      const requesterAccount = await usersCollection.findOne({
+        email: requester,
+      });
+      if (requesterAccount.role === "admin") {
+        next();
+      } else {
+        return res.status(403).send({ message: "Forbidden Access" });
+      }
+    };
 
     // To get All service provided by Doctor:----------
     app.get("/service", async (req, res) => {
       const query = {};
-      const cursor = serviceCollection.find(query);
+      const cursor = serviceCollection.find(query).project({ name: 1 });
       const services = await cursor.toArray();
       res.send(services);
     });
@@ -60,34 +75,24 @@ async function run() {
       res.send(users);
     });
 
-    // GET api for checking Admin or NOT:---
+    // GET api for checking Admin or NOT: useAdmin.js hooks---
     app.get("/admin/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
       // console.log({ email });
       const user = await usersCollection.findOne({ email: email });
-      console.log(user);
+      // console.log(user);
       const isAdmin = user.role === "admin";
 
       res.send({ admin: isAdmin });
     });
 
-    // API to make user Admin:--------
-    app.put("/user/admin/:email", verifyJWT, async (req, res) => {
+    //PUT API to make User Admin:--------
+    app.put("/user/admin/:email", verifyJWT, verifyAdmin, async (req, res) => {
       const email = req.params.email;
-      const requester = req.decoded.email;
-      const requesterAccount = await usersCollection.findOne({
-        email: requester,
-      });
-      if (requesterAccount.role === "admin") {
-        const filter = { email: email };
-        const updateDoc = {
-          $set: { role: "admin" },
-        };
-        const result = await usersCollection.updateOne(filter, updateDoc);
-        res.send({ result });
-      } else {
-        return res.status(403).send({ message: "Forbidden Access" });
-      }
+      const filter = { email: email };
+      const updateDoc = { $set: { role: "admin" } };
+      const result = await usersCollection.updateOne(filter, updateDoc);
+      res.send({ result });
     });
 
     // PUT Api for unique user and JWT toknassign for each users:--
@@ -155,7 +160,7 @@ async function run() {
       }
     });
 
-    //Post Api for Booking on BookingModal:---
+    //POST Api for Booking on BookingModal:---
     app.post("/booking", async (req, res) => {
       const booking = req.body;
       const query = {
@@ -169,6 +174,26 @@ async function run() {
       }
       const result = await bookingCollection.insertOne(booking);
       res.send({ success: true, result });
+    });
+    // GET API FOR all doctor information:
+    app.get("/doctor", verifyJWT, verifyAdmin, async (req, res) => {
+      const doctors = await doctorCollection.find().toArray();
+      res.send(doctors);
+    });
+
+    //POST API for doctor from AddDoctor.js:---------
+    app.post("/doctor", verifyJWT, verifyAdmin, async (req, res) => {
+      const doctor = req.body;
+      const result = await doctorCollection.insertOne(doctor);
+      res.send(result);
+    });
+
+    // DELETE API FOR DOCTOR
+    app.delete("/doctor/:email", verifyJWT, verifyAdmin, async (req, res) => {
+      const email = req.params.email;
+      const filter = { email: email };
+      const result = await doctorCollection.deleteOne(filter);
+      res.send(result);
     });
   } finally {
   }
